@@ -1,0 +1,89 @@
+# Custom pipeline manifest — extends OpenMontage's documentary_montage pipeline
+# with the channel-specific agents defined in skills/channel/.
+# Place this file in pipeline_defs/ in your forked repo alongside OpenMontage's
+# built-in manifests. It does not modify any existing OpenMontage file.
+
+pipeline: business_history_documentary
+extends: documentary_montage   # inherits OpenMontage's real-footage asset sourcing,
+                                 # Remotion/FFmpeg compose, and post-render QA
+
+stages:
+  - id: trend_intelligence
+    skill: skills/channel/trend-intelligence.md
+    model: sonnet
+    runs: every_cycle_before_content_strategy
+
+  - id: content_strategy
+    skill: skills/channel/content-strategy.md
+    model: opus
+    gate: human_approval        # topic must be approved before research spend
+
+  - id: research
+    skill: skills/channel/evidence-ledger.md
+    model: opus
+    output: projects/{episode}/evidence-ledger.md
+
+  - id: script
+    skill: openmontage_default_script + boss_candidate_review
+    model: opus
+    candidates: 3               # generate 3 distinct hooks/structures
+    gate: human_approval
+
+  - id: packaging
+    skill: skills/channel/packaging-ctr.md
+    model: opus
+    candidates: 3               # 3 title options, 3 thumbnail concepts
+    gate: human_approval
+    note: runs BEFORE full production, not after — validation-first
+
+  - id: storyboard
+    skill: openmontage_default_storyboard
+    model: sonnet
+    gate: human_approval
+
+  - id: asset_sourcing
+    skill: openmontage_default_assets
+    model: sonnet
+    sources: [archive.org, wikimedia, pexels, pixabay, nasa]
+    ai_generated_shots: false   # off by default for this channel — real footage only
+
+  - id: narration
+    skill: openmontage_default_tts
+    model: sonnet
+    provider: elevenlabs
+
+  - id: edit_compose
+    skill: openmontage_default_compose
+    model: sonnet
+    renderer: remotion
+
+  - id: technical_qa
+    skill: openmontage_default_qa
+    model: sonnet
+
+  - id: subtitles_metadata
+    skill: skills/channel/metadata-seo.md
+    model: haiku
+
+  - id: legal_compliance
+    skill: skills/channel/legal-compliance.md
+    model: opus
+    gate: hard_block
+
+  - id: monetization_policy
+    skill: skills/channel/monetization-policy.md
+    model: opus
+    gate: hard_block
+
+  - id: boss_final_review
+    skill: skills/channel/boss-scorecard.md
+    model: opus
+    gate: human_approval
+
+  - id: publish
+    gate: human_approval
+
+  - id: analytics_feedback
+    skill: skills/channel/analytics-feedback.md
+    model: sonnet
+    runs: 7_days_post_publish
