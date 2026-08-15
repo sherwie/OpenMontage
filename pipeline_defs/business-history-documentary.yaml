@@ -1,89 +1,348 @@
-# Custom pipeline manifest — extends OpenMontage's documentary_montage pipeline
-# with the channel-specific agents defined in skills/channel/.
-# Place this file in pipeline_defs/ in your forked repo alongside OpenMontage's
-# built-in manifests. It does not modify any existing OpenMontage file.
+name: business-history-documentary
+version: "1.0"
+description: >
+  Business & corporate power history documentary pipeline for this channel (see
+  CLAUDE.md's Channel Operating Charter). Real-footage, narration-led long-form
+  (18-25 min). Reuses documentary-montage's retrieval-first asset/edit/compose
+  directors for footage sourcing and Remotion composition, and explainer's
+  script/publish directors for narration writing and export packaging, wrapped
+  with this channel's own pre-production (trend intelligence, topic selection,
+  evidence ledger), packaging, and post-production (legal/monetization gates,
+  Boss review, analytics feedback) stages defined in skills/channel/.
+category: documentary
+stability: beta
 
-pipeline: business_history_documentary
-extends: documentary_montage   # inherits OpenMontage's real-footage asset sourcing,
-                                 # Remotion/FFmpeg compose, and post-render QA
+default_checkpoint_policy: guided
+
+reference_input:
+  supported: false
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - channel/trend-intelligence
+  - channel/content-strategy
+  - channel/evidence-ledger
+  - pipelines/explainer/script-director
+  - channel/packaging-ctr
+  - pipelines/documentary-montage/scene-director
+  - pipelines/documentary-montage/asset-director
+  - pipelines/documentary-montage/edit-director
+  - pipelines/documentary-montage/compose-director
+  - channel/metadata-seo
+  - channel/legal-compliance
+  - channel/monetization-policy
+  - channel/boss-scorecard
+  - pipelines/explainer/publish-director
+  - channel/analytics-feedback
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+orchestration:
+  mode: executive-producer
+  skill: channel/boss-scorecard
+  budget_default_usd: 10.00
+  max_revisions_per_stage: 2
+  max_send_backs: 2
+  max_wall_time_minutes: 90
+
+compatible_playbooks:
+  recommended:
+    - premium-minimalist
+    - clean-professional
+  custom_allowed: true
 
 stages:
-  - id: trend_intelligence
-    skill: skills/channel/trend-intelligence.md
-    model: sonnet
-    runs: every_cycle_before_content_strategy
+  # ── Channel pre-production (skills/channel/) ──────────────────────
 
-  - id: content_strategy
-    skill: skills/channel/content-strategy.md
-    model: opus
-    gate: human_approval        # topic must be approved before research spend
+  - name: trend_intelligence
+    skill: channel/trend-intelligence
+    produces:
+      - trend_brief
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - Competitor upload patterns reflect the last 30-60 days, not memory
+      - Recommendation ties genuinely current signal to the three series buckets
 
-  - id: research
-    skill: skills/channel/evidence-ledger.md
-    model: opus
-    output: projects/{episode}/evidence-ledger.md
+  - name: content_strategy
+    skill: channel/content-strategy
+    required_artifacts_in:
+      - trend_brief
+    produces:
+      - content_brief
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Evidence availability assessed before committing to the topic
+      - Evergreen strength weighed over news-reaction value
+      - Differentiation checked against Trend Intelligence's competitor notes
+      - Series bucket assigned and risk flags (e.g. litigious subject) noted
+    success_criteria:
+      - content_brief names topic, series bucket, and why it was selected over alternatives
 
-  - id: script
-    skill: openmontage_default_script + boss_candidate_review
-    model: opus
-    candidates: 3               # generate 3 distinct hooks/structures
-    gate: human_approval
+  - name: research
+    skill: channel/evidence-ledger
+    required_artifacts_in:
+      - content_brief
+    produces:
+      - evidence_ledger
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Every claim has a source, date, and confidence level
+      - Contradicting evidence is logged, not hidden
+      - Numbers (dollar figures, dates, percentages) each have their own entry
+    success_criteria:
+      - evidence_ledger entries follow the Claim/Source/Confidence/Contradicting/Allowed-wording format
 
-  - id: packaging
-    skill: skills/channel/packaging-ctr.md
-    model: opus
-    candidates: 3               # 3 title options, 3 thumbnail concepts
-    gate: human_approval
-    note: runs BEFORE full production, not after — validation-first
+  # ── Production ─────────────────────────────────────────────────────
 
-  - id: storyboard
-    skill: openmontage_default_storyboard
-    model: sonnet
-    gate: human_approval
+  - name: script
+    skill: pipelines/explainer/script-director
+    required_artifacts_in:
+      - evidence_ledger
+    optional_artifacts_in:
+      - content_brief
+    produces:
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Boss scorecard applied per channel/boss-scorecard (hook, scene justification, nuance, pacing)
+      - Every claim traces back to an evidence_ledger entry
+      - 3 genuinely different candidates generated, not 3 rewordings
 
-  - id: asset_sourcing
-    skill: openmontage_default_assets
-    model: sonnet
-    sources: [archive.org, wikimedia, pexels, pixabay, nasa]
-    ai_generated_shots: false   # off by default for this channel — real footage only
+  - name: packaging
+    skill: channel/packaging-ctr
+    required_artifacts_in:
+      - script
+    produces:
+      - packaging_decision
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Current title/thumbnail patterns researched before generating, not assumed
+      - 3 distinct title angles and 3 distinct thumbnail concepts generated
+      - Title accurately represents what the video delivers
 
-  - id: narration
-    skill: openmontage_default_tts
-    model: sonnet
-    provider: elevenlabs
+  - name: scene_plan
+    skill: pipelines/documentary-montage/scene-director
+    required_artifacts_in:
+      - script
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Full script duration covered with no gaps
+      - Slot descriptions concrete enough for real-footage retrieval
 
-  - id: edit_compose
-    skill: openmontage_default_compose
-    model: sonnet
-    renderer: remotion
+  - name: assets
+    skill: pipelines/documentary-montage/asset-director
+    required_artifacts_in:
+      - scene_plan
+    produces:
+      - asset_manifest
+    required_tools: []
+    optional_tools:
+      - direct_clip_search
+      - corpus_builder
+      - clip_search
+    tools_available:
+      - direct_clip_search
+      - corpus_builder
+      - clip_search
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Real footage only — ai_generated_shots is off for this channel
+      - Provenance (provider, original_url, license) present on every asset
+      - Every asset traceable to archive.org, wikimedia, pexels, pixabay, or nasa
 
-  - id: technical_qa
-    skill: openmontage_default_qa
-    model: sonnet
+  - name: narration
+    required_artifacts_in:
+      - script
+    produces:
+      - narration_assets
+    required_tools:
+      - tts_selector
+    tools_available:
+      - tts_selector
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Narration covers all script sections
+      - ElevenLabs voice direction followed (read the tool's agent_skills entry before calling)
 
-  - id: subtitles_metadata
-    skill: skills/channel/metadata-seo.md
-    model: haiku
+  - name: edit
+    skill: pipelines/documentary-montage/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - narration_assets
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - renderer_family matches this channel's real-footage documentary approach
+      - Music config present (see Music Plan in AGENT_GUIDE.md)
 
-  - id: legal_compliance
-    skill: skills/channel/legal-compliance.md
-    model: opus
-    gate: hard_block
+  - name: compose
+    skill: pipelines/documentary-montage/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    produces:
+      - render_report
+    required_tools:
+      - video_compose
+    optional_tools:
+      - audio_mixer
+      - video_trimmer
+      - video_stitch
+    tools_available:
+      - video_compose
+      - audio_mixer
+      - video_trimmer
+      - video_stitch
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - render_runtime locked at proposal stays Remotion — no silent swap
+      - Output duration and resolution match plan
 
-  - id: monetization_policy
-    skill: skills/channel/monetization-policy.md
-    model: opus
-    gate: hard_block
+  # ── Post-production / channel-specific gates ────────────────────────
 
-  - id: boss_final_review
-    skill: skills/channel/boss-scorecard.md
-    model: opus
-    gate: human_approval
+  - name: technical_qa
+    skill: meta/reviewer
+    required_artifacts_in:
+      - render_report
+    produces:
+      - qa_report
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - No black frames, audio clipping, or sync drift
+      - Subtitle timing matches narration exactly
 
-  - id: publish
-    gate: human_approval
+  - name: subtitles_metadata
+    skill: channel/metadata-seo
+    required_artifacts_in:
+      - render_report
+    produces:
+      - metadata_package
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Description front-loads the hook before "show more"
+      - Tags derived from the brief and trend_brief, not generic niche tags
 
-  - id: analytics_feedback
-    skill: skills/channel/analytics-feedback.md
-    model: sonnet
-    runs: 7_days_post_publish
+  - name: legal_compliance
+    skill: channel/legal-compliance
+    required_artifacts_in:
+      - evidence_ledger
+      - script
+    produces:
+      - compliance_report
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Every named-company/person claim traces to a High/Medium evidence_ledger entry
+      - No fabricated quotes attributed to real people
+      - Visual rights verified per asset
+
+  - name: monetization_policy
+    skill: channel/monetization-policy
+    required_artifacts_in:
+      - script
+      - scene_plan
+    produces:
+      - monetization_check
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Originality — not a template with swapped facts from a prior episode
+      - Disclosure requirements checked against current YouTube policy
+      - Upload cadence stays within the channel's 1-2 week design
+
+  - name: boss_final_review
+    skill: channel/boss-scorecard
+    required_artifacts_in:
+      - compliance_report
+      - monetization_check
+    produces:
+      - boss_review
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every scorecard dimension scored 1-5 with specific notes on anything <=2
+      - Both hard gates (legal_compliance, monetization_policy) passed before advancing
+
+  - name: publish
+    skill: pipelines/explainer/publish-director
+    required_artifacts_in:
+      - render_report
+      - boss_review
+    produces:
+      - publish_log
+    tools_available:
+      - export_bundle
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Both hard gates logged as passed in the checkpoint trail before publish
+
+  - name: analytics_feedback
+    skill: channel/analytics-feedback
+    required_artifacts_in:
+      - publish_log
+    produces:
+      - performance_log
+    tools_available: []
+    checkpoint_required: false
+    human_approval_default: false
+    review_focus:
+      - Runs at least 7 days post-publish, not on early noise
+      - Diagnosis is specific and actionable, not generic
+
+metadata:
+  channel_operating_charter: CLAUDE.md
+  hard_gates:
+    - stage: legal_compliance
+      policy: block_publish_no_exceptions
+    - stage: monetization_policy
+      policy: block_publish_no_exceptions
+  candidate_generation:
+    script: 3
+    packaging: 3
+  recurring:
+    trend_intelligence: every_cycle_before_content_strategy
+    analytics_feedback: 7_days_post_publish
+  real_footage_sources:
+    - archive.org
+    - wikimedia
+    - pexels
+    - pixabay
+    - nasa
+  ai_generated_shots: false
+  narration_provider: elevenlabs
+  render_runtime_lock: remotion
